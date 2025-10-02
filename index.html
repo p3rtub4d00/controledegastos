@@ -281,6 +281,11 @@
             color: var(--primary);
         }
         
+        .action-btn:disabled {
+            color: #ccc;
+            cursor: not-allowed;
+        }
+
         /* Parcelas Section */
         .parcelas-list {
             display: grid;
@@ -514,7 +519,8 @@
 
             <div class="tabs">
                 <div class="tab active" data-tab="transactions">Transações</div>
-                <div class="tab" data-tab="parcelas">Compras Parceladas</div> <div class="tab" data-tab="fixed-incomes">Receitas Fixas</div>
+                <div class="tab" data-tab="parcelas">Compras Parceladas</div>
+                <div class="tab" data-tab="fixed-incomes">Receitas Fixas</div>
                 <div class="tab" data-tab="fixed-expenses">Despesas Fixas</div>
             </div>
 
@@ -740,7 +746,7 @@
                 }
 
                 monthlyTransactions
-                    .sort((a, b) => new Date(b.date) - new Date(a.date)) // Ordena por data
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))
                     .forEach(tx => {
                         const iconInfo = categoryIcons[tx.category] || categoryIcons.other;
                         const row = `
@@ -757,7 +763,7 @@
                                 <td>${new Date(tx.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</td>
                                 <td class="amount ${tx.type}">${tx.type === 'income' ? '+' : '-'} ${formatCurrency(tx.amount)}</td>
                                 <td class="transaction-actions">
-                                    <button class="action-btn" onclick="UI.editTransaction('${tx.id}')" ${tx.parcelaId ? 'disabled title="Edite a compra original para alterar parcelas"' : ''}><i class="fas fa-edit"></i></button>
+                                    <button class="action-btn" onclick="UI.editTransaction('${tx.id}')" ${tx.parcelaId ? 'disabled title="Exclua a compra para remover as parcelas"' : ''}><i class="fas fa-edit"></i></button>
                                     <button class="action-btn" onclick="UI.deleteTransaction('${tx.id}')"><i class="fas fa-trash"></i></button>
                                 </td>
                             </tr>
@@ -766,13 +772,12 @@
                     });
             };
 
-            // --- NOVA FUNÇÃO PARA RENDERIZAR PARCELAS ---
             const renderParcelas = () => {
                 const listContainer = document.getElementById('parcelasList');
                 listContainer.innerHTML = '';
 
                 const today = new Date();
-                today.setHours(0, 0, 0, 0); // Zera a hora para comparar apenas a data
+                today.setHours(0, 0, 0, 0);
 
                 const futureParcelas = transactions
                     .filter(tx => tx.parcelaId && new Date(tx.date) >= today)
@@ -863,8 +868,7 @@
                 renderFixedItems(fixedExpenses, 'fixedExpensesTableBody', 'expense');
             };
 
-
-            // --- LÓGICA DO MODAL E FORMULÁRIO ATUALIZADA ---
+            // --- LÓGICA DO MODAL E FORMULÁRIO ---
             const openModal = (config) => {
                 form.reset();
                 transactionIdInput.value = '';
@@ -888,7 +892,6 @@
                 modal.style.display = 'none';
             };
             
-            // --- LÓGICA PARA ALTERNAR CAMPOS NO MODAL ---
             const toggleFixedFields = (isFixed) => {
                 if (isFixed) {
                     dateGroup.style.display = 'none';
@@ -918,7 +921,6 @@
                 }
             };
             
-            // --- LÓGICA DE SUBMISSÃO DO FORMULÁRIO ATUALIZADA ---
             form.addEventListener('submit', (e) => {
                 e.preventDefault();
                 
@@ -929,19 +931,18 @@
                 const category = document.getElementById('category').value;
                 const date = document.getElementById('date').value;
                 const dayOfMonth = parseInt(document.getElementById('dayOfMonth').value);
-                const isParcelado = isParceladoCheckbox.checked;
                 const numeroParcelas = parseInt(document.getElementById('numeroParcelas').value);
 
-                // --- NOVA LÓGICA DE PARCELAMENTO ---
-                if (isParcelado) {
+                // ***** CORREÇÃO ESTÁ AQUI *****
+                if (isParceladoCheckbox.checked) {
                     if (numeroParcelas < 2) {
                         alert('O número de parcelas deve ser 2 ou mais.');
                         return;
                     }
                     const valorParcela = amount / numeroParcelas;
-                    const parcelaId = Date.now().toString(); // ID único para o grupo de parcelas
+                    const parcelaId = Date.now().toString();
 
-                    let dataParcela = new Date(date + 'T12:00:00'); // Adiciona hora para evitar problemas de fuso
+                    let dataParcela = new Date(date + 'T12:00:00');
 
                     for (let i = 1; i <= numeroParcelas; i++) {
                         const parcela = {
@@ -951,7 +952,7 @@
                             amount: valorParcela,
                             type: 'expense',
                             category,
-                            date: dataParcela.toISOString().split('T')[0] // Formata para YYYY-MM-DD
+                            date: dataParcela.toISOString().split('T')[0]
                         };
                         transactions.push(parcela);
                         dataParcela.setMonth(dataParcela.getMonth() + 1);
@@ -992,11 +993,11 @@
                 });
             });
 
-            // --- FUNÇÕES GLOBAIS PARA SEREM CHAMADAS PELO ONCLICK ---
+            // --- FUNÇÕES GLOBAIS ---
             window.UI = {
                 editTransaction: (id) => {
                     const tx = transactions.find(t => t.id === id);
-                    if (!tx) return;
+                    if (!tx || tx.parcelaId) return;
 
                     openModal({ title: 'Editar Transação', type: tx.type, isFixed: false, isEdit: true });
                     
@@ -1012,17 +1013,14 @@
                     if (!txToDelete) return;
                     
                     let confirmationText = 'Tem certeza que deseja excluir esta transação?';
-                    // Se for uma parcela, avisa que vai excluir todas
                     if(txToDelete.parcelaId){
-                        confirmationText = 'Esta é uma transação parcelada. Excluir esta transação irá remover TODAS as parcelas futuras relacionadas a esta compra. Deseja continuar?';
+                        confirmationText = 'Isto irá remover TODAS as parcelas relacionadas a esta compra. Deseja continuar?';
                     }
 
                     if (confirm(confirmationText)) {
                         if (txToDelete.parcelaId) {
-                            // Exclui todas as transações com o mesmo ID de parcela
                             transactions = transactions.filter(t => t.parcelaId !== txToDelete.parcelaId);
                         } else {
-                            // Exclui apenas a transação única
                             transactions = transactions.filter(t => t.id !== id);
                         }
                         saveData();
