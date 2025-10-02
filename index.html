@@ -619,7 +619,7 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label" for="amount">Valor</label>
+                            <label class="form-label" for="amount">Valor (Total)</label>
                             <input type="number" class="form-control" id="amount" placeholder="0.00" step="0.01" required>
                         </div>
                         <div class="form-group" id="date-group">
@@ -721,12 +721,18 @@
                 localStorage.setItem('fixedIncomes', JSON.stringify(fixedIncomes));
                 localStorage.setItem('fixedExpenses', JSON.stringify(fixedExpenses));
             };
-
-            // --- FUNÇÕES DE RENDERIZAÇÃO ---
+            
+            // --- FUNÇÕES DE UTILIDADE ---
             const formatCurrency = (value) => {
                 return parseFloat(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
             };
 
+            const parseDate = (dateString) => {
+                const [year, month, day] = dateString.split('-').map(Number);
+                return new Date(year, month - 1, day);
+            };
+
+            // --- FUNÇÕES DE RENDERIZAÇÃO ---
             const renderTransactions = () => {
                 const tableBody = document.getElementById('transactionsTableBody');
                 tableBody.innerHTML = '';
@@ -736,7 +742,7 @@
                 const currentYear = today.getFullYear();
 
                 const monthlyTransactions = transactions.filter(tx => {
-                    const txDate = new Date(tx.date);
+                    const txDate = parseDate(tx.date);
                     return txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear;
                 });
 
@@ -746,7 +752,7 @@
                 }
 
                 monthlyTransactions
-                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .sort((a, b) => parseDate(b.date) - parseDate(a.date))
                     .forEach(tx => {
                         const iconInfo = categoryIcons[tx.category] || categoryIcons.other;
                         const row = `
@@ -760,7 +766,7 @@
                                         <span>${categoryNames[tx.category] || 'Outros'}</span>
                                     </div>
                                 </td>
-                                <td>${new Date(tx.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</td>
+                                <td>${parseDate(tx.date).toLocaleDateString('pt-BR')}</td>
                                 <td class="amount ${tx.type}">${tx.type === 'income' ? '+' : '-'} ${formatCurrency(tx.amount)}</td>
                                 <td class="transaction-actions">
                                     <button class="action-btn" onclick="UI.editTransaction('${tx.id}')" ${tx.parcelaId ? 'disabled title="Exclua a compra para remover as parcelas"' : ''}><i class="fas fa-edit"></i></button>
@@ -780,8 +786,8 @@
                 today.setHours(0, 0, 0, 0);
 
                 const futureParcelas = transactions
-                    .filter(tx => tx.parcelaId && new Date(tx.date) >= today)
-                    .sort((a, b) => new Date(a.date) - new Date(b.date));
+                    .filter(tx => tx.parcelaId && parseDate(tx.date) >= today)
+                    .sort((a, b) => parseDate(a.date) - parseDate(b.date));
 
                 if (futureParcelas.length === 0) {
                     listContainer.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--gray);">Nenhuma parcela futura encontrada.</p>';
@@ -797,7 +803,7 @@
                             </div>
                             <div class="parcela-info">
                                 <span>Categoria: ${categoryNames[tx.category] || 'Outros'}</span>
-                                <span class="parcela-date">Vencimento: ${new Date(tx.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</span>
+                                <span class="parcela-date">Vencimento: ${parseDate(tx.date).toLocaleDateString('pt-BR')}</span>
                             </div>
                         </div>
                     `;
@@ -841,7 +847,7 @@
                 const currentYear = today.getFullYear();
 
                 const monthlyTransactions = transactions.filter(tx => {
-                    const txDate = new Date(tx.date);
+                    const txDate = parseDate(tx.date);
                     return txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear;
                 });
 
@@ -872,6 +878,7 @@
             const openModal = (config) => {
                 form.reset();
                 transactionIdInput.value = '';
+                document.getElementById('date').value = new Date().toISOString().split('T')[0];
                 
                 modalTitle.textContent = config.title;
                 document.getElementById('type').value = config.type;
@@ -899,12 +906,14 @@
                     dayOfMonthGroup.querySelector('input').required = true;
                     dateGroup.querySelector('input').required = false;
                     isParceladoCheckbox.checked = false;
+                    isParceladoCheckbox.disabled = true;
                     toggleParceladoFields(false);
                 } else {
                     dateGroup.style.display = 'block';
                     dayOfMonthGroup.style.display = 'none';
                     dateGroup.querySelector('input').required = true;
                     dayOfMonthGroup.querySelector('input').required = false;
+                    isParceladoCheckbox.disabled = false;
                 }
             };
 
@@ -915,8 +924,11 @@
                     document.getElementById('type').value = 'expense';
                     document.getElementById('type').disabled = true;
                     isFixedCheckbox.checked = false;
+                    isFixedCheckbox.disabled = true;
                     toggleFixedFields(false);
                 } else {
+                    // Re-enable based on the state of the other checkbox
+                    isFixedCheckbox.disabled = false;
                     document.getElementById('type').disabled = isFixedCheckbox.checked;
                 }
             };
@@ -925,27 +937,32 @@
                 e.preventDefault();
                 
                 const id = transactionIdInput.value;
-                const description = document.getElementById('description').value;
+                const description = document.getElementById('description').value.trim();
                 const amount = parseFloat(document.getElementById('amount').value);
+                
+                if (!description || isNaN(amount) || amount <= 0) {
+                    alert('Por favor, preencha a descrição e um valor válido.');
+                    return;
+                }
+
                 const type = document.getElementById('type').value;
                 const category = document.getElementById('category').value;
                 const date = document.getElementById('date').value;
                 const dayOfMonth = parseInt(document.getElementById('dayOfMonth').value);
                 const numeroParcelas = parseInt(document.getElementById('numeroParcelas').value);
 
-                // ***** CORREÇÃO ESTÁ AQUI *****
                 if (isParceladoCheckbox.checked) {
-                    if (numeroParcelas < 2) {
+                    if (isNaN(numeroParcelas) || numeroParcelas < 2) {
                         alert('O número de parcelas deve ser 2 ou mais.');
                         return;
                     }
                     const valorParcela = amount / numeroParcelas;
                     const parcelaId = Date.now().toString();
 
-                    let dataParcela = new Date(date + 'T12:00:00');
+                    let dataParcela = parseDate(date);
 
                     for (let i = 1; i <= numeroParcelas; i++) {
-                        const parcela = {
+                        transactions.push({
                             id: Date.now().toString() + i,
                             parcelaId: parcelaId,
                             description: `${description} (${i}/${numeroParcelas})`,
@@ -953,11 +970,14 @@
                             type: 'expense',
                             category,
                             date: dataParcela.toISOString().split('T')[0]
-                        };
-                        transactions.push(parcela);
+                        });
                         dataParcela.setMonth(dataParcela.getMonth() + 1);
                     }
                 } else if (isFixedCheckbox.checked) {
+                    if (isNaN(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) {
+                        alert('Por favor, insira um dia do mês válido (1-31).');
+                        return;
+                    }
                     const fixedItem = { id: id || Date.now().toString(), description, amount, category, dayOfMonth };
                     const list = type === 'income' ? fixedIncomes : fixedExpenses;
                     const existingIndex = list.findIndex(item => item.id === id);
