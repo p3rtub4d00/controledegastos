@@ -689,6 +689,7 @@
             const modalTitle = document.getElementById('modalTitle');
             const form = document.getElementById('transactionForm');
             const transactionIdInput = document.getElementById('transactionId');
+            const typeSelect = document.getElementById('type');
             const isFixedCheckbox = document.getElementById('isFixed');
             const dateGroup = document.getElementById('date-group');
             const dayOfMonthGroup = document.getElementById('day-of-month-group');
@@ -728,8 +729,8 @@
             };
 
             const parseDate = (dateString) => {
-                const [year, month, day] = dateString.split('-').map(Number);
-                return new Date(year, month - 1, day);
+                const parts = dateString.split('-');
+                return new Date(parts[0], parts[1] - 1, parts[2]);
             };
 
             // --- FUNÇÕES DE RENDERIZAÇÃO ---
@@ -881,56 +882,45 @@
                 document.getElementById('date').value = new Date().toISOString().split('T')[0];
                 
                 modalTitle.textContent = config.title;
-                document.getElementById('type').value = config.type;
+                typeSelect.value = config.type;
                 isFixedCheckbox.checked = config.isFixed;
                 isParceladoCheckbox.checked = false;
 
-                toggleFixedFields(config.isFixed);
-                toggleParceladoFields(false);
+                updateFormState(); // Centraliza a lógica de estado do formulário
 
-                document.getElementById('type').disabled = config.isFixed;
                 optionsGroup.style.display = config.isEdit ? 'none' : 'block';
-
                 modal.style.display = 'flex';
                 document.getElementById('description').focus();
+            };
+            
+            const updateFormState = () => {
+                const isFixed = isFixedCheckbox.checked;
+                const isParcelado = isParceladoCheckbox.checked;
+
+                // Gerencia campos de data
+                dateGroup.style.display = isFixed ? 'none' : 'block';
+                dayOfMonthGroup.style.display = isFixed ? 'block' : 'none';
+                dateGroup.querySelector('input').required = !isFixed;
+                dayOfMonthGroup.querySelector('input').required = isFixed;
+
+                // Gerencia campos de parcela
+                parcelOptions.style.display = isParcelado ? 'block' : 'none';
+                parcelOptions.querySelector('input').required = isParcelado;
+
+                // Gerencia interações entre checkboxes e tipo
+                isParceladoCheckbox.disabled = isFixed;
+                isFixedCheckbox.disabled = isParcelado;
+                
+                if (isParcelado) {
+                    typeSelect.value = 'expense';
+                    typeSelect.disabled = true;
+                } else {
+                    typeSelect.disabled = isFixed;
+                }
             };
 
             const closeModal = () => {
                 modal.style.display = 'none';
-            };
-            
-            const toggleFixedFields = (isFixed) => {
-                if (isFixed) {
-                    dateGroup.style.display = 'none';
-                    dayOfMonthGroup.style.display = 'block';
-                    dayOfMonthGroup.querySelector('input').required = true;
-                    dateGroup.querySelector('input').required = false;
-                    isParceladoCheckbox.checked = false;
-                    isParceladoCheckbox.disabled = true;
-                    toggleParceladoFields(false);
-                } else {
-                    dateGroup.style.display = 'block';
-                    dayOfMonthGroup.style.display = 'none';
-                    dateGroup.querySelector('input').required = true;
-                    dayOfMonthGroup.querySelector('input').required = false;
-                    isParceladoCheckbox.disabled = false;
-                }
-            };
-
-            const toggleParceladoFields = (isParcelado) => {
-                parcelOptions.style.display = isParcelado ? 'block' : 'none';
-                parcelOptions.querySelector('input').required = isParcelado;
-                if (isParcelado) {
-                    document.getElementById('type').value = 'expense';
-                    document.getElementById('type').disabled = true;
-                    isFixedCheckbox.checked = false;
-                    isFixedCheckbox.disabled = true;
-                    toggleFixedFields(false);
-                } else {
-                    // Re-enable based on the state of the other checkbox
-                    isFixedCheckbox.disabled = false;
-                    document.getElementById('type').disabled = isFixedCheckbox.checked;
-                }
             };
             
             form.addEventListener('submit', (e) => {
@@ -945,7 +935,7 @@
                     return;
                 }
 
-                const type = document.getElementById('type').value;
+                const type = typeSelect.value;
                 const category = document.getElementById('category').value;
                 const date = document.getElementById('date').value;
                 const dayOfMonth = parseInt(document.getElementById('dayOfMonth').value);
@@ -1001,8 +991,8 @@
             modal.querySelector('.close-modal').addEventListener('click', closeModal);
             document.getElementById('cancelTransaction').addEventListener('click', closeModal);
 
-            isFixedCheckbox.addEventListener('change', (e) => toggleFixedFields(e.target.checked));
-            isParceladoCheckbox.addEventListener('change', (e) => toggleParceladoFields(e.target.checked));
+            isFixedCheckbox.addEventListener('change', updateFormState);
+            isParceladoCheckbox.addEventListener('change', updateFormState);
             
             document.querySelectorAll('.tab').forEach(tab => {
                 tab.addEventListener('click', () => {
@@ -1025,7 +1015,7 @@
                     document.getElementById('description').value = tx.description;
                     document.getElementById('amount').value = tx.amount;
                     document.getElementById('date').value = tx.date;
-                    document.getElementById('type').value = tx.type;
+                    typeSelect.value = tx.type;
                     document.getElementById('category').value = tx.category;
                 },
                 deleteTransaction: (id) => {
