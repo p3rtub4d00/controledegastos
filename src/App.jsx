@@ -4,7 +4,7 @@ import {
   PieChart, X, ShoppingBag, Utensils, Car, Home, 
   Gamepad2, Briefcase, DollarSign, CheckCircle2, AlertCircle, 
   ChevronLeft, ChevronRight, Search, Download, Upload, RefreshCw, CreditCard,
-  Eye, EyeOff
+  Eye, EyeOff, FilterX
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Toaster, toast } from 'sonner';
@@ -182,7 +182,6 @@ const Modal = ({ isOpen, onClose, onSave }) => {
             </select>
           </div>
 
-          {/* ÁREA DE DESPESA (FIXA OU PARCELADA) */}
           {formData.type === 'expense' && (
             <div className="p-4 bg-slate-50 rounded-xl space-y-3 border border-slate-100">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -209,8 +208,7 @@ const Modal = ({ isOpen, onClose, onSave }) => {
             </div>
           )}
 
-          {/* ÁREA DE RECEITA (FIXA) - RESTAURADO! */}
-          {formData.type === 'income' && (
+           {formData.type === 'income' && (
              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                <label className="flex items-center gap-2 cursor-pointer">
                  <input type="checkbox" className="w-5 h-5 rounded text-blue-600"
@@ -246,6 +244,7 @@ function App() {
     return localStorage.getItem('finance_privacy') === 'true';
   });
 
+  const [activeFilter, setActiveFilter] = useState('all'); // 'all', 'income', 'expense', 'debt'
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('dashboard');
@@ -304,10 +303,12 @@ function App() {
     const newDate = new Date(currentDate);
     newDate.setMonth(currentDate.getMonth() + direction);
     setCurrentDate(newDate);
+    setActiveFilter('all'); // Reseta filtro ao mudar mês
   };
 
   const goToToday = () => {
     setCurrentDate(new Date());
+    setActiveFilter('all');
   };
 
   const togglePrivacy = () => {
@@ -346,12 +347,35 @@ function App() {
     }
   };
 
-  const monthTransactions = transactions.filter(t => {
-    const tDate = new Date(t.date + 'T12:00:00');
-    return tDate.getMonth() === currentDate.getMonth() && tDate.getFullYear() === currentDate.getFullYear();
-  }).filter(t => t.description.toLowerCase().includes(searchTerm.toLowerCase()));
+  // --- FILTROS DE VISUALIZAÇÃO ---
 
-  const sortedTransactions = [...monthTransactions].sort((a, b) => {
+  const getFilteredTransactions = () => {
+    let filtered = [];
+
+    // Se for filtro de DÍVIDA, ignora o mês e pega tudo que é parcela futura
+    if (activeFilter === 'debt') {
+      return transactions.filter(t => t.type === 'expense' && t.status === 'pending' && t.installments > 1);
+    }
+
+    // Filtro Padrão (Por Mês)
+    filtered = transactions.filter(t => {
+      const tDate = new Date(t.date + 'T12:00:00');
+      return tDate.getMonth() === currentDate.getMonth() && tDate.getFullYear() === currentDate.getFullYear();
+    });
+
+    // Filtros de Cards (Receita/Despesa)
+    if (activeFilter === 'income') filtered = filtered.filter(t => t.type === 'income');
+    if (activeFilter === 'expense') filtered = filtered.filter(t => t.type === 'expense');
+
+    // Filtro de Busca (Texto)
+    if (searchTerm) filtered = filtered.filter(t => t.description.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    return filtered;
+  };
+
+  const displayTransactions = getFilteredTransactions();
+
+  const sortedTransactions = [...displayTransactions].sort((a, b) => {
     if (a.status === b.status) return new Date(b.date) - new Date(a.date);
     return a.status === 'paid' ? 1 : -1;
   });
@@ -360,7 +384,13 @@ function App() {
     t.date < getTodayISO() && t.status === 'pending' && t.type === 'expense'
   );
 
-  const summary = monthTransactions.reduce((acc, t) => {
+  // Totais do Mês (Para os Cards) - Calculados SEMPRE com base no mês total (independente do filtro da lista)
+  const monthAllTransactions = transactions.filter(t => {
+    const tDate = new Date(t.date + 'T12:00:00');
+    return tDate.getMonth() === currentDate.getMonth() && tDate.getFullYear() === currentDate.getFullYear();
+  });
+
+  const summary = monthAllTransactions.reduce((acc, t) => {
     if (t.type === 'income') acc.income += t.amount;
     else acc.expense += t.amount;
     return acc;
@@ -373,7 +403,7 @@ function App() {
     return acc;
   }, 0);
 
-  const chartData = Object.entries(monthTransactions.filter(t => t.type === 'expense').reduce((acc, t) => {
+  const chartData = Object.entries(monthAllTransactions.filter(t => t.type === 'expense').reduce((acc, t) => {
     acc[t.category] = (acc[t.category] || 0) + t.amount; return acc;
   }, {})).map(([key, value]) => ({ name: CATEGORIES[key].label, value, color: CATEGORIES[key].color }));
 
@@ -436,9 +466,12 @@ function App() {
 
       {viewMode === 'dashboard' ? (
         <>
-          {/* CARDS DE RESUMO */}
+          {/* CARDS DE RESUMO COM CLICK */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
+            <div 
+              onClick={() => setActiveFilter('all')}
+              className={`bg-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden cursor-pointer transition-transform hover:scale-[1.02] ${activeFilter === 'all' ? 'ring-2 ring-offset-2 ring-slate-900' : ''}`}
+            >
               <div className="relative z-10">
                 <p className="text-slate-300 text-sm font-medium mb-1">Saldo Previsto</p>
                 <h3 className={`text-2xl font-bold ${isPrivacyMode ? 'blur-md select-none' : ''}`}>{formatCurrency(summary.income - summary.expense, false)}</h3>
@@ -446,7 +479,10 @@ function App() {
               <Wallet className="absolute right-4 bottom-4 text-slate-700 opacity-50" size={48} />
             </div>
             
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div 
+              onClick={() => setActiveFilter(activeFilter === 'income' ? 'all' : 'income')}
+              className={`bg-white p-6 rounded-2xl shadow-sm border cursor-pointer transition-all hover:border-emerald-200 ${activeFilter === 'income' ? 'border-emerald-500 ring-1 ring-emerald-500 bg-emerald-50/30' : 'border-slate-100'}`}
+            >
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-slate-500 text-sm font-medium mb-1">Receitas</p>
@@ -456,7 +492,10 @@ function App() {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div 
+              onClick={() => setActiveFilter(activeFilter === 'expense' ? 'all' : 'expense')}
+              className={`bg-white p-6 rounded-2xl shadow-sm border flex flex-col justify-between cursor-pointer transition-all hover:border-rose-200 ${activeFilter === 'expense' ? 'border-rose-500 ring-1 ring-rose-500 bg-rose-50/30' : 'border-slate-100'}`}
+            >
               <div className="flex justify-between items-start mb-2">
                 <div>
                   <p className="text-slate-500 text-sm font-medium mb-1">Despesas do Mês</p>
@@ -473,7 +512,10 @@ function App() {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-indigo-100 relative overflow-hidden group hover:border-indigo-300 transition-colors">
+            <div 
+               onClick={() => setActiveFilter(activeFilter === 'debt' ? 'all' : 'debt')}
+               className={`bg-white p-6 rounded-2xl shadow-sm border relative overflow-hidden group hover:border-indigo-300 transition-all cursor-pointer ${activeFilter === 'debt' ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/30' : 'border-indigo-100'}`}
+            >
               <div className="flex justify-between items-start relative z-10">
                 <div>
                   <p className="text-indigo-500 text-sm font-medium mb-1">Dívida Parcelada Total</p>
@@ -496,10 +538,21 @@ function App() {
             </div>
 
             <div className="lg:col-span-2">
-              <h3 className="font-bold text-slate-800 mb-4">Extrato</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  Extrato 
+                  {activeFilter !== 'all' && (
+                    <span className="text-xs bg-slate-800 text-white px-2 py-1 rounded-md flex items-center gap-1">
+                       Filtro: {activeFilter === 'income' ? 'Receitas' : activeFilter === 'expense' ? 'Despesas' : 'Dívidas Futuras'}
+                       <button onClick={() => setActiveFilter('all')}><FilterX size={12}/></button>
+                    </span>
+                  )}
+                </h3>
+              </div>
+              
               <div className="space-y-0">
                 {sortedTransactions.length === 0 ? (
-                  <div className="text-center py-12 border border-dashed border-slate-200 rounded-2xl"><p className="text-slate-500">Nenhum lançamento encontrado.</p></div>
+                  <div className="text-center py-12 border border-dashed border-slate-200 rounded-2xl"><p className="text-slate-500">Nenhum lançamento encontrado para este filtro.</p></div>
                 ) : (
                   sortedTransactions.map(t => <TransactionItem key={t.id} transaction={t} onDelete={deleteTransaction} onToggleStatus={toggleStatus} isHidden={isPrivacyMode} />)
                 )}
