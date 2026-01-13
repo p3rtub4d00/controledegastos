@@ -3,7 +3,7 @@ import {
   Plus, Trash2, TrendingUp, TrendingDown, Wallet, 
   PieChart, X, ShoppingBag, Utensils, Car, Home, 
   Gamepad2, Briefcase, DollarSign, CheckCircle2, AlertCircle, 
-  ChevronLeft, ChevronRight, Search, Download, Upload, Target, RefreshCw
+  ChevronLeft, ChevronRight, Search, Download, Upload, Target, RefreshCw, CreditCard
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
@@ -29,7 +29,6 @@ const formatDate = (dateString) => {
   return `${day}/${month}/${year}`;
 };
 
-// Função para pegar a data atual corrigida (Fuso Horário Local)
 const getTodayISO = () => {
   const date = new Date();
   const offset = date.getTimezoneOffset();
@@ -61,7 +60,8 @@ const TransactionItem = ({ transaction, onDelete, onToggleStatus }) => {
   return (
     <div className={`flex items-center justify-between p-4 border border-slate-100 rounded-xl mb-3 transition-all ${isPaid ? 'bg-slate-50 opacity-60' : 'bg-white hover:shadow-md'} ${isOverdue ? 'border-l-4 border-l-red-500' : ''}`}>
       <div className="flex items-center gap-4 overflow-hidden">
-        <button onClick={() => onToggleStatus(transaction.id)} className={`p-2 rounded-full transition-colors flex-shrink-0 ${isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+        {/* BOTÃO PARA MARCAR COMO PAGO AQUI: */}
+        <button onClick={() => onToggleStatus(transaction.id)} className={`p-2 rounded-full transition-colors flex-shrink-0 ${isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`} title={isPaid ? "Marcar como não pago" : "Marcar como pago"}>
           <CheckCircle2 size={20} />
         </button>
         
@@ -104,7 +104,6 @@ const Modal = ({ isOpen, onClose, onSave }) => {
     isRecurring: false, isInstallment: false, installmentCount: 2
   });
 
-  // Reseta a data para hoje sempre que o modal abre
   useEffect(() => {
     if (isOpen) {
       setFormData(prev => ({ ...prev, date: getTodayISO() }));
@@ -213,7 +212,7 @@ function App() {
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentDate, setCurrentDate] = useState(new Date()); // Inicia com data de hoje
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const fileInputRef = useRef(null);
@@ -232,7 +231,7 @@ function App() {
 
     if (data.isRecurring) {
       for (let i = 0; i < 12; i++) {
-        const date = new Date(data.date + 'T12:00:00'); // Fix para evitar troca de dia
+        const date = new Date(data.date + 'T12:00:00');
         date.setMonth(date.getMonth() + i);
         newTransactions.push({ ...data, id: `${baseId}-${i}`, date: date.toISOString().split('T')[0], status: 'pending', installments: 1, currentInstallment: 1 });
       }
@@ -270,7 +269,6 @@ function App() {
     setCurrentDate(new Date());
   };
 
-  // Funções de Backup
   const exportData = () => {
     const dataStr = JSON.stringify(transactions, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
@@ -302,7 +300,8 @@ function App() {
     }
   };
 
-  // Filtros
+  // --- FILTROS E CÁLCULOS ---
+
   const monthTransactions = transactions.filter(t => {
     const tDate = new Date(t.date + 'T12:00:00');
     return tDate.getMonth() === currentDate.getMonth() && tDate.getFullYear() === currentDate.getFullYear();
@@ -323,14 +322,23 @@ function App() {
     return acc;
   }, { income: 0, expense: 0 });
 
+  // NOVO CÁLCULO: TOTAL EM DÍVIDA PARCELADA (TODAS AS PENDENTES FUTURAS DE PARCELAMENTOS)
+  const totalInstallmentDebt = transactions.reduce((acc, t) => {
+    // É despesa + É parcelado + Está pendente = Dívida
+    if (t.type === 'expense' && t.status === 'pending' && t.installments > 1) {
+      return acc + t.amount;
+    }
+    return acc;
+  }, 0);
+
   const chartData = Object.entries(monthTransactions.filter(t => t.type === 'expense').reduce((acc, t) => {
     acc[t.category] = (acc[t.category] || 0) + t.amount; return acc;
   }, {})).map(([key, value]) => ({ name: CATEGORIES[key].label, value, color: CATEGORIES[key].color }));
 
   return (
-    <div className="min-h-screen pb-24 md:pb-10 px-4 pt-6 md:pt-8 max-w-6xl mx-auto bg-[#f8fafc]">
+    <div className="min-h-screen pb-24 md:pb-10 px-4 pt-6 md:pt-8 max-w-7xl mx-auto bg-[#f8fafc]">
       
-      {/* Topo com Backup e Título */}
+      {/* Topo com Backup */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Wallet className="text-blue-600" /> Finanças
@@ -346,7 +354,7 @@ function App() {
         </div>
       </div>
 
-      {/* Navegação de Mês + Busca */}
+      {/* Navegação */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-8 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
         <div className="flex items-center gap-2 w-full md:w-auto">
           <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><ChevronLeft size={20} /></button>
@@ -371,7 +379,6 @@ function App() {
         </div>
       </div>
 
-      {/* Navegação de Abas */}
       <div className="flex gap-4 mb-6 border-b border-slate-200">
         <button onClick={() => setViewMode('dashboard')} className={`pb-3 px-2 font-medium border-b-2 transition-colors ${viewMode === 'dashboard' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>Visão Mensal</button>
         <button onClick={() => setViewMode('overdue')} className={`pb-3 px-2 font-medium border-b-2 transition-colors flex items-center gap-2 ${viewMode === 'overdue' ? 'border-red-500 text-red-600' : 'border-transparent text-slate-500'}`}>
@@ -382,55 +389,57 @@ function App() {
 
       {viewMode === 'dashboard' ? (
         <>
-          {/* Cards de Resumo */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {/* CARDS DE RESUMO (AGORA COM 4 COLUNAS) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
               <div className="relative z-10">
                 <p className="text-slate-300 text-sm font-medium mb-1">Saldo Previsto</p>
-                <h3 className="text-3xl font-bold">{formatCurrency(summary.income - summary.expense)}</h3>
+                <h3 className="text-2xl font-bold">{formatCurrency(summary.income - summary.expense)}</h3>
               </div>
-              <Wallet className="absolute right-4 bottom-4 text-slate-700 opacity-50" size={64} />
+              <Wallet className="absolute right-4 bottom-4 text-slate-700 opacity-50" size={48} />
             </div>
             
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <div className="flex justify-between items-start mb-4">
+              <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-slate-500 text-sm font-medium">Receitas</p>
-                  <h3 className="text-2xl font-bold text-emerald-600">{formatCurrency(summary.income)}</h3>
+                  <p className="text-slate-500 text-sm font-medium mb-1">Receitas</p>
+                  <h3 className="text-xl font-bold text-emerald-600">{formatCurrency(summary.income)}</h3>
                 </div>
                 <div className="p-2 bg-emerald-50 rounded-lg"><TrendingUp className="text-emerald-500" size={20} /></div>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
               <div className="flex justify-between items-start mb-2">
                 <div>
-                  <p className="text-slate-500 text-sm font-medium">Despesas</p>
-                  <h3 className="text-2xl font-bold text-rose-600">{formatCurrency(summary.expense)}</h3>
+                  <p className="text-slate-500 text-sm font-medium mb-1">Despesas do Mês</p>
+                  <h3 className="text-xl font-bold text-rose-600">{formatCurrency(summary.expense)}</h3>
                 </div>
                 <div className="p-2 bg-rose-50 rounded-lg"><TrendingDown className="text-rose-500" size={20} /></div>
               </div>
-              {/* Barra de Meta de Gastos */}
-              <div className="mt-2">
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-500 flex items-center gap-1"><Target size={12} /> Meta: {formatCurrency(spendingGoal)}</span>
-                  <span className={`${summary.expense > spendingGoal ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
-                    {Math.round((summary.expense / spendingGoal) * 100)}%
-                  </span>
+              <div>
+                <div className="flex justify-between text-[10px] mb-1">
+                  <span className="text-slate-500">Meta: {formatCurrency(spendingGoal)}</span>
+                  <span className={`${summary.expense > spendingGoal ? 'text-red-500 font-bold' : 'text-slate-400'}`}>{Math.round((summary.expense / spendingGoal) * 100)}%</span>
                 </div>
                 <ProgressBar current={summary.expense} max={spendingGoal} />
-                <button 
-                   onClick={() => { const meta = prompt("Qual sua meta de gastos mensal?", spendingGoal); if(meta) setSpendingGoal(Number(meta)); }}
-                   className="text-[10px] text-blue-500 hover:underline mt-1 w-full text-right"
-                >
-                   Alterar Meta
-                </button>
+              </div>
+            </div>
+
+            {/* NOVO CARD DE DÍVIDA PARCELADA */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-indigo-100 relative overflow-hidden group hover:border-indigo-300 transition-colors">
+              <div className="flex justify-between items-start relative z-10">
+                <div>
+                  <p className="text-indigo-500 text-sm font-medium mb-1">Dívida Parcelada Total</p>
+                  <h3 className="text-xl font-bold text-indigo-700">{formatCurrency(totalInstallmentDebt)}</h3>
+                  <p className="text-[10px] text-indigo-400 mt-1">Soma de parcelas futuras pendentes</p>
+                </div>
+                <div className="p-2 bg-indigo-50 rounded-lg"><CreditCard className="text-indigo-500" size={20} /></div>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Gráfico */}
             <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 h-fit">
               <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><PieChart size={18} /> Gastos do Mês</h3>
               <div className="h-64 w-full">
@@ -440,7 +449,6 @@ function App() {
               </div>
             </div>
 
-            {/* Lista */}
             <div className="lg:col-span-2">
               <h3 className="font-bold text-slate-800 mb-4">Extrato</h3>
               <div className="space-y-0">
