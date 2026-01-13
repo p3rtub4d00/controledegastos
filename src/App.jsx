@@ -98,15 +98,7 @@ const TransactionItem = ({ transaction, onDelete, onToggleStatus, isHidden }) =>
           {isExpense ? '- ' : '+ '}{formatCurrency(transaction.amount, false)}
         </span>
         <button 
-          onClick={() => {
-            toast('Excluir transação?', {
-              action: {
-                label: 'Excluir',
-                onClick: () => onDelete(transaction.id),
-              },
-              cancel: { label: 'Cancelar' },
-            });
-          }} 
+          onClick={() => onDelete(transaction.id)} 
           className="text-slate-300 hover:text-rose-500 transition-colors"
         >
           <Trash2 size={18} />
@@ -271,7 +263,15 @@ function App() {
       for (let i = 0; i < 12; i++) {
         const date = new Date(data.date + 'T12:00:00');
         date.setMonth(date.getMonth() + i);
-        newTransactions.push({ ...data, id: `${baseId}-${i}`, date: date.toISOString().split('T')[0], status: 'pending', installments: 1, currentInstallment: 1 });
+        newTransactions.push({ 
+          ...data, 
+          id: `${baseId}-${i}`, 
+          groupId: baseId, // ID do grupo para exclusão em massa
+          date: date.toISOString().split('T')[0], 
+          status: 'pending', 
+          installments: 1, 
+          currentInstallment: 1 
+        });
       }
       toast.success(data.type === 'income' ? 'Receita fixa criada para o ano!' : 'Despesa fixa criada para o ano!');
     } else if (data.isInstallment) {
@@ -279,7 +279,17 @@ function App() {
       for (let i = 0; i < data.installmentCount; i++) {
         const date = new Date(data.date + 'T12:00:00');
         date.setMonth(date.getMonth() + i);
-        newTransactions.push({ ...data, amount: installmentValue, id: `${baseId}-${i}`, date: date.toISOString().split('T')[0], status: 'pending', installments: parseInt(data.installmentCount), currentInstallment: i + 1, description: `${data.description}` });
+        newTransactions.push({ 
+          ...data, 
+          amount: installmentValue, 
+          id: `${baseId}-${i}`, 
+          groupId: baseId, // ID do grupo
+          date: date.toISOString().split('T')[0], 
+          status: 'pending', 
+          installments: parseInt(data.installmentCount), 
+          currentInstallment: i + 1, 
+          description: `${data.description}` 
+        });
       }
       toast.success(`Compra parcelada em ${data.installmentCount}x criada!`);
     } else {
@@ -290,9 +300,50 @@ function App() {
     setTransactions([...newTransactions, ...transactions]);
   };
 
-  const deleteTransaction = (id) => {
-    setTransactions(transactions.filter(t => t.id !== id));
-    toast.success('Registro apagado.');
+  // FUNÇÃO DE EXCLUSÃO INTELIGENTE
+  const handleDeleteRequest = (id) => {
+    const transaction = transactions.find(t => t.id === id);
+    if (!transaction) return;
+
+    // Verifica se tem GroupID ou se o ID tem o padrão de recorrência antigo (uuid-index)
+    const baseId = transaction.groupId || (transaction.id.split('-').length > 5 ? transaction.id.split('-').slice(0, -1).join('-') : null);
+
+    if (baseId) {
+      // É recorrente: Pergunta ao usuário
+      toast('Item Recorrente/Parcelado', {
+        description: 'Deseja excluir todas as repetições ou apenas esta?',
+        action: {
+          label: 'Excluir TODAS',
+          onClick: () => {
+            setTransactions(prev => prev.filter(t => {
+                const tBase = t.groupId || (t.id.split('-').length > 5 ? t.id.split('-').slice(0, -1).join('-') : null);
+                return tBase !== baseId;
+            }));
+            toast.success('Todas as recorrências foram apagadas.');
+          }
+        },
+        cancel: {
+          label: 'Apenas Esta',
+          onClick: () => {
+             setTransactions(prev => prev.filter(t => t.id !== id));
+             toast.success('Registro apagado.');
+          }
+        },
+        duration: 8000, // Dá mais tempo para pensar
+      });
+    } else {
+      // Transação Comum: Confirmação Simples
+      toast('Excluir transação?', {
+        action: {
+          label: 'Excluir',
+          onClick: () => {
+             setTransactions(prev => prev.filter(t => t.id !== id));
+             toast.success('Registro apagado.');
+          }
+        },
+        cancel: { label: 'Cancelar' },
+      });
+    }
   };
 
   const toggleStatus = (id) => {
@@ -303,7 +354,7 @@ function App() {
     const newDate = new Date(currentDate);
     newDate.setMonth(currentDate.getMonth() + direction);
     setCurrentDate(newDate);
-    setActiveFilter('all'); // Reseta filtro ao mudar mês
+    setActiveFilter('all'); 
   };
 
   const goToToday = () => {
@@ -347,29 +398,20 @@ function App() {
     }
   };
 
-  // --- FILTROS DE VISUALIZAÇÃO ---
+  // --- FILTROS ---
 
   const getFilteredTransactions = () => {
     let filtered = [];
-
-    // Se for filtro de DÍVIDA, ignora o mês e pega tudo que é parcela futura
     if (activeFilter === 'debt') {
       return transactions.filter(t => t.type === 'expense' && t.status === 'pending' && t.installments > 1);
     }
-
-    // Filtro Padrão (Por Mês)
     filtered = transactions.filter(t => {
       const tDate = new Date(t.date + 'T12:00:00');
       return tDate.getMonth() === currentDate.getMonth() && tDate.getFullYear() === currentDate.getFullYear();
     });
-
-    // Filtros de Cards (Receita/Despesa)
     if (activeFilter === 'income') filtered = filtered.filter(t => t.type === 'income');
     if (activeFilter === 'expense') filtered = filtered.filter(t => t.type === 'expense');
-
-    // Filtro de Busca (Texto)
     if (searchTerm) filtered = filtered.filter(t => t.description.toLowerCase().includes(searchTerm.toLowerCase()));
-
     return filtered;
   };
 
@@ -384,7 +426,6 @@ function App() {
     t.date < getTodayISO() && t.status === 'pending' && t.type === 'expense'
   );
 
-  // Totais do Mês (Para os Cards) - Calculados SEMPRE com base no mês total (independente do filtro da lista)
   const monthAllTransactions = transactions.filter(t => {
     const tDate = new Date(t.date + 'T12:00:00');
     return tDate.getMonth() === currentDate.getMonth() && tDate.getFullYear() === currentDate.getFullYear();
@@ -411,7 +452,7 @@ function App() {
     <div className="min-h-screen pb-24 md:pb-10 px-4 pt-6 md:pt-8 max-w-7xl mx-auto bg-[#f8fafc]">
       <Toaster position="top-center" richColors />
 
-      {/* Topo com Backup e Privacidade */}
+      {/* Topo */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Wallet className="text-blue-600" /> Finanças
@@ -466,12 +507,9 @@ function App() {
 
       {viewMode === 'dashboard' ? (
         <>
-          {/* CARDS DE RESUMO COM CLICK */}
+          {/* CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div 
-              onClick={() => setActiveFilter('all')}
-              className={`bg-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden cursor-pointer transition-transform hover:scale-[1.02] ${activeFilter === 'all' ? 'ring-2 ring-offset-2 ring-slate-900' : ''}`}
-            >
+            <div onClick={() => setActiveFilter('all')} className={`bg-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden cursor-pointer transition-transform hover:scale-[1.02] ${activeFilter === 'all' ? 'ring-2 ring-offset-2 ring-slate-900' : ''}`}>
               <div className="relative z-10">
                 <p className="text-slate-300 text-sm font-medium mb-1">Saldo Previsto</p>
                 <h3 className={`text-2xl font-bold ${isPrivacyMode ? 'blur-md select-none' : ''}`}>{formatCurrency(summary.income - summary.expense, false)}</h3>
@@ -479,10 +517,7 @@ function App() {
               <Wallet className="absolute right-4 bottom-4 text-slate-700 opacity-50" size={48} />
             </div>
             
-            <div 
-              onClick={() => setActiveFilter(activeFilter === 'income' ? 'all' : 'income')}
-              className={`bg-white p-6 rounded-2xl shadow-sm border cursor-pointer transition-all hover:border-emerald-200 ${activeFilter === 'income' ? 'border-emerald-500 ring-1 ring-emerald-500 bg-emerald-50/30' : 'border-slate-100'}`}
-            >
+            <div onClick={() => setActiveFilter(activeFilter === 'income' ? 'all' : 'income')} className={`bg-white p-6 rounded-2xl shadow-sm border cursor-pointer transition-all hover:border-emerald-200 ${activeFilter === 'income' ? 'border-emerald-500 ring-1 ring-emerald-500 bg-emerald-50/30' : 'border-slate-100'}`}>
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-slate-500 text-sm font-medium mb-1">Receitas</p>
@@ -492,10 +527,7 @@ function App() {
               </div>
             </div>
 
-            <div 
-              onClick={() => setActiveFilter(activeFilter === 'expense' ? 'all' : 'expense')}
-              className={`bg-white p-6 rounded-2xl shadow-sm border flex flex-col justify-between cursor-pointer transition-all hover:border-rose-200 ${activeFilter === 'expense' ? 'border-rose-500 ring-1 ring-rose-500 bg-rose-50/30' : 'border-slate-100'}`}
-            >
+            <div onClick={() => setActiveFilter(activeFilter === 'expense' ? 'all' : 'expense')} className={`bg-white p-6 rounded-2xl shadow-sm border flex flex-col justify-between cursor-pointer transition-all hover:border-rose-200 ${activeFilter === 'expense' ? 'border-rose-500 ring-1 ring-rose-500 bg-rose-50/30' : 'border-slate-100'}`}>
               <div className="flex justify-between items-start mb-2">
                 <div>
                   <p className="text-slate-500 text-sm font-medium mb-1">Despesas do Mês</p>
@@ -512,10 +544,7 @@ function App() {
               </div>
             </div>
 
-            <div 
-               onClick={() => setActiveFilter(activeFilter === 'debt' ? 'all' : 'debt')}
-               className={`bg-white p-6 rounded-2xl shadow-sm border relative overflow-hidden group hover:border-indigo-300 transition-all cursor-pointer ${activeFilter === 'debt' ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/30' : 'border-indigo-100'}`}
-            >
+            <div onClick={() => setActiveFilter(activeFilter === 'debt' ? 'all' : 'debt')} className={`bg-white p-6 rounded-2xl shadow-sm border relative overflow-hidden group hover:border-indigo-300 transition-all cursor-pointer ${activeFilter === 'debt' ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/30' : 'border-indigo-100'}`}>
               <div className="flex justify-between items-start relative z-10">
                 <div>
                   <p className="text-indigo-500 text-sm font-medium mb-1">Dívida Parcelada Total</p>
@@ -554,7 +583,7 @@ function App() {
                 {sortedTransactions.length === 0 ? (
                   <div className="text-center py-12 border border-dashed border-slate-200 rounded-2xl"><p className="text-slate-500">Nenhum lançamento encontrado para este filtro.</p></div>
                 ) : (
-                  sortedTransactions.map(t => <TransactionItem key={t.id} transaction={t} onDelete={deleteTransaction} onToggleStatus={toggleStatus} isHidden={isPrivacyMode} />)
+                  sortedTransactions.map(t => <TransactionItem key={t.id} transaction={t} onDelete={handleDeleteRequest} onToggleStatus={toggleStatus} isHidden={isPrivacyMode} />)
                 )}
               </div>
             </div>
@@ -574,7 +603,7 @@ function App() {
               <CheckCircle2 size={48} className="mx-auto text-emerald-500 mb-2" />
               <h3 className="text-emerald-700 font-bold">Tudo em dia!</h3>
             </div>
-          ) : overdueTransactions.map(t => <TransactionItem key={t.id} transaction={t} onDelete={deleteTransaction} onToggleStatus={toggleStatus} isHidden={isPrivacyMode} />)}
+          ) : overdueTransactions.map(t => <TransactionItem key={t.id} transaction={t} onDelete={handleDeleteRequest} onToggleStatus={toggleStatus} isHidden={isPrivacyMode} />)}
         </div>
       )}
 
