@@ -3,9 +3,11 @@ import {
   Plus, Trash2, TrendingUp, TrendingDown, Wallet, 
   PieChart, X, ShoppingBag, Utensils, Car, Home, 
   Gamepad2, Briefcase, DollarSign, CheckCircle2, AlertCircle, 
-  ChevronLeft, ChevronRight, Search, Download, Upload, Target, RefreshCw, CreditCard
+  ChevronLeft, ChevronRight, Search, Download, Upload, RefreshCw, CreditCard,
+  Eye, EyeOff
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { Toaster, toast } from 'sonner';
 
 // --- CONFIGURAÇÕES E UTILITÁRIOS ---
 
@@ -19,7 +21,10 @@ const CATEGORIES = {
   other: { label: 'Outros', icon: DollarSign, color: '#64748b' },
 };
 
-const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+const formatCurrency = (value, isHidden) => {
+  if (isHidden) return '••••••';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+};
 
 const getMonthName = (date) => date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
@@ -51,7 +56,7 @@ const ProgressBar = ({ current, max }) => {
   );
 };
 
-const TransactionItem = ({ transaction, onDelete, onToggleStatus }) => {
+const TransactionItem = ({ transaction, onDelete, onToggleStatus, isHidden }) => {
   const CategoryIcon = CATEGORIES[transaction.category]?.icon || CATEGORIES.other.icon;
   const isExpense = transaction.type === 'expense';
   const isPaid = transaction.status === 'paid';
@@ -60,8 +65,10 @@ const TransactionItem = ({ transaction, onDelete, onToggleStatus }) => {
   return (
     <div className={`flex items-center justify-between p-4 border border-slate-100 rounded-xl mb-3 transition-all ${isPaid ? 'bg-slate-50 opacity-60' : 'bg-white hover:shadow-md'} ${isOverdue ? 'border-l-4 border-l-red-500' : ''}`}>
       <div className="flex items-center gap-4 overflow-hidden">
-        {/* BOTÃO PARA MARCAR COMO PAGO AQUI: */}
-        <button onClick={() => onToggleStatus(transaction.id)} className={`p-2 rounded-full transition-colors flex-shrink-0 ${isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`} title={isPaid ? "Marcar como não pago" : "Marcar como pago"}>
+        <button 
+          onClick={() => onToggleStatus(transaction.id)} 
+          className={`p-2 rounded-full transition-colors flex-shrink-0 ${isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+        >
           <CheckCircle2 size={20} />
         </button>
         
@@ -87,10 +94,21 @@ const TransactionItem = ({ transaction, onDelete, onToggleStatus }) => {
       </div>
 
       <div className="flex items-center gap-3 sm:gap-4 pl-2">
-        <span className={`font-bold whitespace-nowrap ${isPaid ? 'text-slate-400' : isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
-          {isExpense ? '- ' : '+ '}{formatCurrency(transaction.amount)}
+        <span className={`font-bold whitespace-nowrap ${isHidden ? 'blur-sm select-none' : ''} ${isPaid ? 'text-slate-400' : isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
+          {isExpense ? '- ' : '+ '}{formatCurrency(transaction.amount, false)}
         </span>
-        <button onClick={() => onDelete(transaction.id)} className="text-slate-300 hover:text-rose-500 transition-colors">
+        <button 
+          onClick={() => {
+            toast('Excluir transação?', {
+              action: {
+                label: 'Excluir',
+                onClick: () => onDelete(transaction.id),
+              },
+              cancel: { label: 'Cancelar' },
+            });
+          }} 
+          className="text-slate-300 hover:text-rose-500 transition-colors"
+        >
           <Trash2 size={18} />
         </button>
       </div>
@@ -164,6 +182,7 @@ const Modal = ({ isOpen, onClose, onSave }) => {
             </select>
           </div>
 
+          {/* ÁREA DE DESPESA (FIXA OU PARCELADA) */}
           {formData.type === 'expense' && (
             <div className="p-4 bg-slate-50 rounded-xl space-y-3 border border-slate-100">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -190,6 +209,18 @@ const Modal = ({ isOpen, onClose, onSave }) => {
             </div>
           )}
 
+          {/* ÁREA DE RECEITA (FIXA) - RESTAURADO! */}
+          {formData.type === 'income' && (
+             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+               <label className="flex items-center gap-2 cursor-pointer">
+                 <input type="checkbox" className="w-5 h-5 rounded text-blue-600"
+                   checked={formData.isRecurring}
+                   onChange={(e) => setFormData({ ...formData, isRecurring: e.target.checked })} />
+                 <span className="text-sm text-slate-700">Receita Fixa (Salário mensal)</span>
+               </label>
+             </div>
+          )}
+
           <button type="submit" className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-slate-800 transition-colors shadow-lg">
             Salvar Transação
           </button>
@@ -211,6 +242,10 @@ function App() {
     return localStorage.getItem('finance_goal') || 2000;
   });
 
+  const [isPrivacyMode, setIsPrivacyMode] = useState(() => {
+    return localStorage.getItem('finance_privacy') === 'true';
+  });
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('dashboard');
@@ -225,6 +260,10 @@ function App() {
     localStorage.setItem('finance_goal', spendingGoal);
   }, [spendingGoal]);
 
+  useEffect(() => {
+    localStorage.setItem('finance_privacy', isPrivacyMode);
+  }, [isPrivacyMode]);
+
   const addTransaction = (data) => {
     const newTransactions = [];
     const baseId = crypto.randomUUID();
@@ -235,6 +274,7 @@ function App() {
         date.setMonth(date.getMonth() + i);
         newTransactions.push({ ...data, id: `${baseId}-${i}`, date: date.toISOString().split('T')[0], status: 'pending', installments: 1, currentInstallment: 1 });
       }
+      toast.success(data.type === 'income' ? 'Receita fixa criada para o ano!' : 'Despesa fixa criada para o ano!');
     } else if (data.isInstallment) {
       const installmentValue = data.amount / data.installmentCount;
       for (let i = 0; i < data.installmentCount; i++) {
@@ -242,17 +282,18 @@ function App() {
         date.setMonth(date.getMonth() + i);
         newTransactions.push({ ...data, amount: installmentValue, id: `${baseId}-${i}`, date: date.toISOString().split('T')[0], status: 'pending', installments: parseInt(data.installmentCount), currentInstallment: i + 1, description: `${data.description}` });
       }
+      toast.success(`Compra parcelada em ${data.installmentCount}x criada!`);
     } else {
       newTransactions.push({ ...data, id: baseId, status: 'pending', installments: 1, currentInstallment: 1 });
+      toast.success('Transação adicionada com sucesso!');
     }
 
     setTransactions([...newTransactions, ...transactions]);
   };
 
   const deleteTransaction = (id) => {
-    if(confirm("Deseja apagar este registro?")) {
-      setTransactions(transactions.filter(t => t.id !== id));
-    }
+    setTransactions(transactions.filter(t => t.id !== id));
+    toast.success('Registro apagado.');
   };
 
   const toggleStatus = (id) => {
@@ -269,6 +310,10 @@ function App() {
     setCurrentDate(new Date());
   };
 
+  const togglePrivacy = () => {
+    setIsPrivacyMode(!isPrivacyMode);
+  };
+
   const exportData = () => {
     const dataStr = JSON.stringify(transactions, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
@@ -277,6 +322,7 @@ function App() {
     link.href = url;
     link.download = `backup_financas_${getTodayISO()}.json`;
     link.click();
+    toast.success('Backup baixado com sucesso!');
   };
 
   const importData = (event) => {
@@ -288,19 +334,17 @@ function App() {
           const importedData = JSON.parse(e.target.result);
           if (Array.isArray(importedData)) {
             setTransactions(importedData);
-            alert("Dados restaurados com sucesso!");
+            toast.success("Dados restaurados com sucesso!");
           } else {
-            alert("Arquivo inválido.");
+            toast.error("Arquivo inválido.");
           }
         } catch (error) {
-          alert("Erro ao ler o arquivo.");
+          toast.error("Erro ao ler o arquivo.");
         }
       };
       reader.readAsText(file);
     }
   };
-
-  // --- FILTROS E CÁLCULOS ---
 
   const monthTransactions = transactions.filter(t => {
     const tDate = new Date(t.date + 'T12:00:00');
@@ -322,9 +366,7 @@ function App() {
     return acc;
   }, { income: 0, expense: 0 });
 
-  // NOVO CÁLCULO: TOTAL EM DÍVIDA PARCELADA (TODAS AS PENDENTES FUTURAS DE PARCELAMENTOS)
   const totalInstallmentDebt = transactions.reduce((acc, t) => {
-    // É despesa + É parcelado + Está pendente = Dívida
     if (t.type === 'expense' && t.status === 'pending' && t.installments > 1) {
       return acc + t.amount;
     }
@@ -337,13 +379,18 @@ function App() {
 
   return (
     <div className="min-h-screen pb-24 md:pb-10 px-4 pt-6 md:pt-8 max-w-7xl mx-auto bg-[#f8fafc]">
-      
-      {/* Topo com Backup */}
+      <Toaster position="top-center" richColors />
+
+      {/* Topo com Backup e Privacidade */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Wallet className="text-blue-600" /> Finanças
         </h1>
         <div className="flex gap-2">
+          <button onClick={togglePrivacy} title={isPrivacyMode ? "Mostrar Valores" : "Esconder Valores"} className="p-2 text-slate-500 hover:bg-white hover:text-slate-900 rounded-full transition-all border border-transparent hover:border-slate-200">
+            {isPrivacyMode ? <EyeOff size={20} /> : <Eye size={20} />}
+          </button>
+          <div className="w-px h-6 bg-slate-300 mx-1 self-center"></div>
           <button onClick={exportData} title="Fazer Backup" className="p-2 text-slate-500 hover:bg-white hover:text-blue-600 rounded-full transition-all border border-transparent hover:border-slate-200">
             <Download size={20} />
           </button>
@@ -389,12 +436,12 @@ function App() {
 
       {viewMode === 'dashboard' ? (
         <>
-          {/* CARDS DE RESUMO (AGORA COM 4 COLUNAS) */}
+          {/* CARDS DE RESUMO */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
               <div className="relative z-10">
                 <p className="text-slate-300 text-sm font-medium mb-1">Saldo Previsto</p>
-                <h3 className="text-2xl font-bold">{formatCurrency(summary.income - summary.expense)}</h3>
+                <h3 className={`text-2xl font-bold ${isPrivacyMode ? 'blur-md select-none' : ''}`}>{formatCurrency(summary.income - summary.expense, false)}</h3>
               </div>
               <Wallet className="absolute right-4 bottom-4 text-slate-700 opacity-50" size={48} />
             </div>
@@ -403,7 +450,7 @@ function App() {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-slate-500 text-sm font-medium mb-1">Receitas</p>
-                  <h3 className="text-xl font-bold text-emerald-600">{formatCurrency(summary.income)}</h3>
+                  <h3 className={`text-xl font-bold text-emerald-600 ${isPrivacyMode ? 'blur-md select-none' : ''}`}>{formatCurrency(summary.income, false)}</h3>
                 </div>
                 <div className="p-2 bg-emerald-50 rounded-lg"><TrendingUp className="text-emerald-500" size={20} /></div>
               </div>
@@ -413,25 +460,24 @@ function App() {
               <div className="flex justify-between items-start mb-2">
                 <div>
                   <p className="text-slate-500 text-sm font-medium mb-1">Despesas do Mês</p>
-                  <h3 className="text-xl font-bold text-rose-600">{formatCurrency(summary.expense)}</h3>
+                  <h3 className={`text-xl font-bold text-rose-600 ${isPrivacyMode ? 'blur-md select-none' : ''}`}>{formatCurrency(summary.expense, false)}</h3>
                 </div>
                 <div className="p-2 bg-rose-50 rounded-lg"><TrendingDown className="text-rose-500" size={20} /></div>
               </div>
               <div>
                 <div className="flex justify-between text-[10px] mb-1">
-                  <span className="text-slate-500">Meta: {formatCurrency(spendingGoal)}</span>
+                  <span className="text-slate-500 flex items-center gap-1">Meta: <span className={isPrivacyMode ? 'blur-sm' : ''}>{formatCurrency(spendingGoal, false)}</span></span>
                   <span className={`${summary.expense > spendingGoal ? 'text-red-500 font-bold' : 'text-slate-400'}`}>{Math.round((summary.expense / spendingGoal) * 100)}%</span>
                 </div>
                 <ProgressBar current={summary.expense} max={spendingGoal} />
               </div>
             </div>
 
-            {/* NOVO CARD DE DÍVIDA PARCELADA */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-indigo-100 relative overflow-hidden group hover:border-indigo-300 transition-colors">
               <div className="flex justify-between items-start relative z-10">
                 <div>
                   <p className="text-indigo-500 text-sm font-medium mb-1">Dívida Parcelada Total</p>
-                  <h3 className="text-xl font-bold text-indigo-700">{formatCurrency(totalInstallmentDebt)}</h3>
+                  <h3 className={`text-xl font-bold text-indigo-700 ${isPrivacyMode ? 'blur-md select-none' : ''}`}>{formatCurrency(totalInstallmentDebt, false)}</h3>
                   <p className="text-[10px] text-indigo-400 mt-1">Soma de parcelas futuras pendentes</p>
                 </div>
                 <div className="p-2 bg-indigo-50 rounded-lg"><CreditCard className="text-indigo-500" size={20} /></div>
@@ -444,7 +490,7 @@ function App() {
               <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><PieChart size={18} /> Gastos do Mês</h3>
               <div className="h-64 w-full">
                 {chartData.length > 0 ? (
-                  <ResponsiveContainer><RePieChart><Pie data={chartData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{chartData.map((entry, index) => <Cell key={index} fill={entry.color} stroke="none" />)}</Pie><Tooltip formatter={(val) => formatCurrency(val)} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}} /></RePieChart></ResponsiveContainer>
+                  <ResponsiveContainer><RePieChart><Pie data={chartData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{chartData.map((entry, index) => <Cell key={index} fill={entry.color} stroke="none" />)}</Pie><Tooltip formatter={(val) => formatCurrency(val, isPrivacyMode)} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}} /></RePieChart></ResponsiveContainer>
                 ) : <div className="h-full flex items-center justify-center text-slate-400 text-sm">Sem gastos este mês</div>}
               </div>
             </div>
@@ -455,7 +501,7 @@ function App() {
                 {sortedTransactions.length === 0 ? (
                   <div className="text-center py-12 border border-dashed border-slate-200 rounded-2xl"><p className="text-slate-500">Nenhum lançamento encontrado.</p></div>
                 ) : (
-                  sortedTransactions.map(t => <TransactionItem key={t.id} transaction={t} onDelete={deleteTransaction} onToggleStatus={toggleStatus} />)
+                  sortedTransactions.map(t => <TransactionItem key={t.id} transaction={t} onDelete={deleteTransaction} onToggleStatus={toggleStatus} isHidden={isPrivacyMode} />)
                 )}
               </div>
             </div>
@@ -475,7 +521,7 @@ function App() {
               <CheckCircle2 size={48} className="mx-auto text-emerald-500 mb-2" />
               <h3 className="text-emerald-700 font-bold">Tudo em dia!</h3>
             </div>
-          ) : overdueTransactions.map(t => <TransactionItem key={t.id} transaction={t} onDelete={deleteTransaction} onToggleStatus={toggleStatus} />)}
+          ) : overdueTransactions.map(t => <TransactionItem key={t.id} transaction={t} onDelete={deleteTransaction} onToggleStatus={toggleStatus} isHidden={isPrivacyMode} />)}
         </div>
       )}
 
